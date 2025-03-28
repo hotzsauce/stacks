@@ -117,7 +117,7 @@ a while. In the meantime, there's a built-in `plot_data()` method that
 transforms the underlying `X` and `Y` vectors, along with names, and returns
 that information in dictionary to make plotting marginally easier.
 
-![modo fig](https://github.com/hotzsauce/stacks/tree/main/figures/simple_stack_chart.png)
+![modo fig](figures/simple_stack_chart.png)
 
 The following code snippet uses `pandas`/`matplotlib` to generate the figure
 above. Handling the colors is crude here, but what are you gonna do.
