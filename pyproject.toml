@@ -1,0 +1,20 @@
+[project]
+name = "stacks"
+version = "0.1.0"
+description = "A python toolkit for working with supply-stack type data"
+authors = [
+    {name = "Logan Hotz",email = "logan@modo.energy"}
+]
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "numpy (>=2.2.4,<3.0.0)"
+]
+
+[tool.poetry]
+packages = [{include = "stacks", from = "src"}]
+
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
