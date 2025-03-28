@@ -34,6 +34,10 @@ class Stack(object):
     that of `s1`.
     """
 
+    # =====
+    # Instantiation
+    # =====
+
     def __init__(
         self,
         X: Iterable[Number],
@@ -58,6 +62,65 @@ class Stack(object):
         else:
             self._sources = sources
 
+    @classmethod
+    def from_blocks(
+        cls,
+        X: np.ndarray,
+        Y: np.ndarray,
+        **init_kwargs
+    ):
+        """
+        Create a `Stack` from blocks of `X` and `Y` values
+
+        # Example
+        Y = [[ 0.95 14.99 29.99]
+             [ 0.     nan   nan]
+             [  nan  1.99  1.99]
+             [ 0.     nan   nan]
+             [  nan  1.99  1.99]]
+
+        X = [[1.5 2.5 2.5]
+             [9.9 nan nan]
+             [nan 2.4 4. ]
+             [9.9 nan nan]
+             [nan 2.4 4. ]]
+
+        stack = Stack.from_blocks(X, Y)
+        [ 0.    0.95  1.99 14.99 29.99]
+        [3.96 4.26 6.82 7.32 7.82]
+        """
+        p = Y.shape
+        q = X.shape
+
+        if p != q:
+            raise ValueError(
+                f"dims of `Y` block ({p}) do not match `X` block ({q})"
+            )
+
+        if len(p) == 2:
+            Y = Y.flatten()
+            X = X.flatten()
+        elif len(p) == 1:
+            pass
+        else:
+            raise ValueError("`X` and `Y` must be 1- or 2-dim arrays")
+
+        # drop any nans and flatten each array
+        mask = ~np.isnan(Y)
+        Y_fl = Y[mask]
+        X_fl = X[mask]
+
+        # sort both x and y by y
+        idx = np.argsort(Y_fl)
+        Y_fl = Y_fl[idx]
+        X_fl = X_fl[idx]
+
+        # find unique heights and their initial indices; group accordingly
+        Y_uniq, indices = np.unique(Y_fl, return_index=True)
+        X_sums = np.add.reduceat(X_fl, indices)
+
+        return Stack(X_sums, Y_uniq, **init_kwargs)
+
     # =====
     # Dunder Methods
     # =====
@@ -69,7 +132,7 @@ class Stack(object):
         Xr, Yr = other.vectors(fine=False)
         X, Y, il, ir = _add_stacks_with_zipper(Xl, Yl, Xr, Yr)
 
-        name = _join_names(self, other)
+        name = _join_stack_names(self, other)
         sources = _combine_sources(self._sources, other._sources, il, ir)
 
         return Stack(X, Y, name, sources)
@@ -106,12 +169,15 @@ class Stack(object):
 
         return self.f.accumulate(X)
 
-    def sources(self, fine: bool = True):
+    def sources(self, fine: bool = False):
         if fine:
             it = (s for s_dict in self._sources for s in s_dict.keys())
-            return np.fromiter(it, dtype="<U48")
+            l = max(max(map(len, self.name.split(ADD_DELIM))), 1)
+            return np.fromiter(it, dtype=f"<U{l}")
         else:
-            raise ValueError("`sources` cannot be constructed coarsely")
+            it = (_join_names(s_dict.keys()) for s_dict in self._sources)
+            l = max(len(self.name), 1)
+            return np.fromiter(it, dtype=f"<U{l}")
 
     def vectors(self, fine: bool = False):
         return (self.X(fine), self.Y(fine))
@@ -119,7 +185,7 @@ class Stack(object):
     def X(self, fine: bool = False):
         if fine:
             it = (v for s_dict in self._sources for v in s_dict.values())
-            return np.fromiter(it, dtype=float)
+            return np.fromiter(it, dtype=self._X.dtype)
         else:
             return self._X
 
@@ -132,7 +198,7 @@ class Stack(object):
         """
         if fine:
             it = (y for s, y in zip(self._sources, self._Y) for _ in s.values())
-            return np.fromiter(it, dtype=float)
+            return np.fromiter(it, dtype=self._Y.dtype)
         else:
             return self._Y
 
@@ -156,9 +222,9 @@ class Stack(object):
         W = np.diff(Z)
 
         if fine:
-            names = self.sources()
+            names = self.sources(True)
         else:
-            names = np.full(len(self), self.name)
+            names = np.full(len(Y), self.name)
 
         return {"x_tick": X, "width": W, "height": Y, "name": names}
 
@@ -243,17 +309,35 @@ def _combine_source_dict(
             sl[key_r] = value_r
     return sl
 
-def _join_names(sl: Stack, sr: Stack) -> str:
-    if sl.name and sr.name:
-        if sl.name == sr.name:
-            return sl.name
-        return ADD_DELIM.join((sl.name, sr.name))
-    elif sl.name:
-        return sl.name
-    elif sr.name:
-        return sr.name
+def _join_stack_names(sl: Stack, sr: Stack) -> str:
+    return _join_names((sl.name, sr.name))
+    if nl.name and nr.name:
+        if nl.name == nr.name:
+            return nl.name
+        return ADD_DELIM.join((nl.name, nr.name))
+    elif nl.name:
+        return nl.name
+    elif nr.name:
+        return nr.name
     else:
         return ""
+
+def _join_names(names: Iterable[str]) -> str:
+    seen = set()
+    out = []
+
+    for name in names:
+        if name and (name not in seen):
+            seen.add(name)
+            out.append(name)
+
+    if not out:
+        return ""
+
+    if len(out) == 1:
+        return out[0]
+
+    return ADD_DELIM.join(out)
 
 def _validate_stack_vectors(X: np.ndarray, Y: np.ndarray, strict: bool):
     """
