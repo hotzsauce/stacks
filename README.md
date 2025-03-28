@@ -150,7 +150,7 @@ As a proof of concept, in the `/figures` directory there is a sample of Hunt
 Energy offers from August 2024, along with their `Stack`-produced figure, and
 the script used to generate the figure.
 
-![hunt fig](https://github.com/hotzsauce/stacks/tree/main/figures/hunt_aug2024_sample.png)
+![hunt fig](figures/hunt_aug2024_sample.png)
 
 # notes
 
