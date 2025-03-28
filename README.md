@@ -117,7 +117,7 @@ a while. In the meantime, there's a built-in `plot_data()` method that
 transforms the underlying `X` and `Y` vectors, along with names, and returns
 that information in dictionary to make plotting marginally easier.
 
-![modo fig][https://github.com/hotzsauce/stacks/tree/main/figures/simple_stack_chart.png]
+![modo fig](https://raw.githubusercontent.com/hotzsauce/stacks/tree/main/figures/simple_stack_chart.png)
 
 The following code snippet uses `pandas`/`matplotlib` to generate the figure
 above. Handling the colors is crude here, but what are you gonna do.
@@ -150,7 +150,7 @@ As a proof of concept, in the `/figures` directory there is a sample of Hunt
 Energy offers from August 2024, along with their `Stack`-produced figure, and
 the script used to generate the figure.
 
-![hunt fig][https://github.com/hotzsauce/stacks/tree/main/figures/hunt_aug2024_sample.png]
+![hunt fig](https://raw.githubusercontent.com/hotzsauce/stacks/tree/main/figures/hunt_aug2024_sample.png)
 
 # notes
 
