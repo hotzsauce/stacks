@@ -147,12 +147,12 @@ class Stack(object):
 
     def __repr__(self):
         n = len(self)
-        x0, xn = self._X[0], self._X[n-1]
+        y0, yn = self._Y[0], self._Y[n-1]
 
         if self.name:
-            return f"Stack({self.name}, {x0}...{xn}; n={n})"
+            return f"Stack({self.name}, {y0}...{yn}; n={n})"
         else:
-            return f"Stack({x0}...{xn}; n={n})"
+            return f"Stack({y0}...{yn}; n={n})"
 
     # =====
     # Fundamental Methods
