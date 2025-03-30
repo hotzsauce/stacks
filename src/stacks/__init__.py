@@ -203,6 +203,61 @@ class Stack(object):
             return self._Y
 
     # =====
+    # Methods
+    # =====
+    def total(self) -> int | float:
+        """
+        Aggregate all the `X` values
+
+        Returns
+        -------
+        total : Number
+        """
+        return self.f.reduce(self._X)
+
+    def total_above(self, threshold: int | float) -> int | float:
+        """
+        Aggregate the `X` values whose corresponding `Y` value is above a given
+        threshold
+
+        Parameters
+        ----------
+        threshold : Number
+            The threshold above which `X` values will be included
+
+        Returns
+        -------
+        total : Number
+
+        Notes
+        -----
+        The comparison uses a weak inequality
+        """
+        mask = self._Y >= threshold
+        return self.f.reduce(self._X[mask])
+
+    def total_below(self, threshold: int | float) -> int | float:
+        """
+        Aggregate the `X` values whose corresponding `Y` value is above a given
+        threshold
+
+        Parameters
+        ----------
+        threshold : Number
+            The threshold above which `X` values will be included
+
+        Returns
+        -------
+        total : Number
+
+        Notes
+        -----
+        The comparison uses a strict inequality
+        """
+        mask = self._Y < threshold
+        return self.f.reduce(self._X[mask])
+
+    # =====
     # Visualization
     # =====
     def plot_data(self, fine: bool = True):
