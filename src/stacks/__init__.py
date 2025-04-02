@@ -205,6 +205,23 @@ class Stack(object):
     # =====
     # Methods
     # =====
+    def mean(self, n: int = None) -> Stack:
+        """
+        """
+        if n is None:
+            n = len(self.name.split("+"))
+            return self.mean(n)
+
+        if n <= 0:
+            raise ValueError(f"denominator in `mean` is less than zero: {n}")
+        else:
+            S = self._sources.copy()
+            for x_source in S:
+                for k in x_source.keys():
+                    x_source[k] /= n
+
+            return Stack(self._X.copy() / n, self._Y.copy(), self.name, S)
+
     def total(self) -> int | float:
         """
         Aggregate all the `X` values
@@ -214,6 +231,18 @@ class Stack(object):
         total : Number
         """
         return self.f.reduce(self._X)
+
+    def rename(self, name: str) -> Stack:
+        """
+        Rename the stack and return itself.
+
+        Parameters
+        ----------
+        name : str
+            The new name
+        """
+        self.name = name
+        return self
 
     def total_above(self, threshold: int | float) -> int | float:
         """
@@ -285,9 +314,56 @@ class Stack(object):
 
 
 
+# =====
+# Public Methods
+# =====
+def mean(*args):
+    """
+    Compute the mean `Stack` of the given set of `Stack`s.
+
+    Given a set of `n` stacks, `(s_1, ..., s_n)` with representative vector
+    tuple
+    ```
+    (x_i, y_i) = (x_{i,0}, ..., x_{i,n_i-1}), (y_{i,0}, ..., y_{i,n_i-1}),
+    ```
+    the mean `Stack` is
+    ```
+        (X, Y) = ((X_{1}, ..., X_{N}), (Y_{(1)}, ..., Y_{(N)}))
+    ```
+    where
+        - `Y_i` is an element of `Y = union_{i} [ union_{j} ( y_{i,j} ) ]`
+        - `N = |Y|` is the size of `Y`
+        - `z_{(i)}` denotes the `i`-th order statistic of the set of variables
+            `{z_j}`
+        - `X_i = sum( x_{j,k} | y_{j,k} == Y_{(i)} ) / n`
+    """
+
+    n = len(args)
+    if n == 0:
+        raise ValueError("no `Stack`s passed to `mean`")
+    elif n == 1:
+        return args[0]
+
+    # map from (stack1, ..., stackn) -> ((X1, ..., Xn), (Y1, ..., Yn))
+    vec_tups = zip(*map(lambda st: st.vectors(), args))
+    X, Y, Is = _add_stack_collections_with_zippers(*vec_tups)
+
+    Ss = map(lambda st: st._sources, args)
+    S = _combine_source_collections(Ss, Is)
+
+    # normalize all the X values
+    X = X / n
+    for x_source in S:
+        for k in x_source.keys():
+            x_source[k] /= n
+
+    name = "mean"
+    return Stack(X, Y, name, S)
+
+
 
 # =====
-# Utilities
+# Private Utilities
 # =====
 
 ADD_DELIM = "+"
@@ -336,6 +412,24 @@ def _add_stacks_with_zipper(
 
     return X, Y, il, ir
 
+def _add_stack_collections_with_zippers(
+    Xs: Iterable[np.ndarray],
+    Ys: Iterable[np.ndarray],
+) -> Tuple[np.ndarray, np.ndarray, List[np.ndarray]]:
+    """
+    generalizes `_add_stacks_with_zipper`
+    """
+    Y = np.unique(np.concatenate(Ys))
+    X = np.zeros(len(Y), np.result_type(*Xs))
+
+    idx_maps = []
+    for Xi, Yi, in zip(Xs, Ys):
+        idx = np.searchsorted(Y, Yi)
+        X[idx] += Xi
+        idx_maps.append(idx)
+
+    return X, Y, idx_maps
+
 def _combine_sources(
     Sl: np.ndarray[dict[str, float]],
     Sr: np.ndarray[dict[str, float]],
@@ -353,10 +447,26 @@ def _combine_sources(
 
     return S
 
+def _combine_source_collections(
+    Ss: Iterable[np.ndarray],
+    Is: Iterable[np.ndarray],
+) -> np.ndarray[dict[str, float]]:
+    """
+    Generalizes `_combine_sources`
+    """
+    n = max(np.max(idx) for idx in Is) + 1
+    S = np.array([{} for _ in range(n)], dtype=object)
+
+    for Si, Ii in zip(Ss, Is):
+        for i, target_idx in enumerate(Ii):
+            S[target_idx] = _combine_source_dict(S[target_idx], Si[i])
+    return S
+
 def _combine_source_dict(
     sl: dict[str, float],
     sr: dict[str, float]
 ) -> dict[str, float]:
+    sl = sl.copy() # avoid mutating in-place
     for key_r, value_r in sr.items():
         if key_r in sl:
             sl[key_r] += value_r
@@ -366,16 +476,6 @@ def _combine_source_dict(
 
 def _join_stack_names(sl: Stack, sr: Stack) -> str:
     return _join_names((sl.name, sr.name))
-    if nl.name and nr.name:
-        if nl.name == nr.name:
-            return nl.name
-        return ADD_DELIM.join((nl.name, nr.name))
-    elif nl.name:
-        return nl.name
-    elif nr.name:
-        return nr.name
-    else:
-        return ""
 
 def _join_names(names: Iterable[str]) -> str:
     seen = set()
