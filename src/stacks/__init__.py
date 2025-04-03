@@ -137,6 +137,51 @@ class Stack(object):
 
         return Stack(X, Y, name, sources)
 
+    def __ge__(self, other: Stack):
+        """
+        Check whether this Stack weakly dominates another Stack at all `Y`
+        points.
+
+        For every `y`, this method returns True if:
+            sum(self.X[i] for i where self.Y[i] <= y)
+            >=
+            sum(other.X[i] for i where other.Y[i] <= y)
+
+        This is equivalent to testing for the reverse of first-order stochastic
+        dominance: whether this Stack has at least as much cumulative `X` at
+        every point as `other`.
+
+        Parameters
+        ----------
+        other : Stack
+            Another Stack instance to compare against.
+
+        Returns
+        -------
+        bool
+            True if this Stack weakly dominates `other` at all `Y` points, False
+            otherwise.
+
+        Raises
+        ------
+        TypeError
+            If `other` is not an instance of Stack.
+        """
+
+        if type(self) != type(other):
+            to = type(other)
+            raise TypeError(f"cannot compare `Stack`s to `{to}` objects")
+
+        # equiv to `union1d`, but faster
+        Y = np.unique(np.concatenate((self._Y, other._Y)))
+
+        # eventual comparison arrays
+        Xs, _ = _accumulate_at(Y, self._X, self._Y)
+        Xo, _ = _accumulate_at(Y, other._X, other._Y)
+
+        # return np.all(Xs >= Xo) & np.any(Xs > Xo)
+        return np.all(Xs >= Xo)
+
     def __len__(self):
         return len(self._X)
 
@@ -157,18 +202,6 @@ class Stack(object):
     # =====
     # Fundamental Methods
     # =====
-    def cumulate(self, fine: bool = False):
-        """
-        Calculate and return the cumulated `X` vector
-        """
-        if fine:
-            it = (v for s_dict in self._sources for v in s_dict.values())
-            X = np.fromiter(it, dtype=float)
-        else:
-            X = self._X
-
-        return self.f.accumulate(X)
-
     def sources(self, fine: bool = False):
         if fine:
             it = (s for s_dict in self._sources for s in s_dict.keys())
@@ -205,8 +238,59 @@ class Stack(object):
     # =====
     # Methods
     # =====
+    def clip(self, x: float, fine: bool = False) -> Stack:
+        """
+        Clip the Stack from the top based on a cumulative `X` threshold.
+
+        This method truncates the Stack so that only entries where the
+        cumulative sum of `X` is less than or equal to `x` are retained.
+
+        Parameters
+        ----------
+        x : float
+            The cumulative `X` threshold.
+        fine : bool, optional (default=False)
+            If True, the cumulative sum is calculated using the fine-grained
+            source contributions rather than the coarse `X` values.
+
+        Returns
+        -------
+        Stack
+            A new Stack instance containing only entries below the cumulative
+            threshold.
+        """
+        mask = self.cumulate(fine=fine) <= x
+        X = self._X[mask]
+        Y = self._Y[mask]
+        S = self._sources[mask]
+        return Stack(X, Y, name=self.name, sources=S)
+
+    def cumulate(self, fine: bool = False):
+        """
+        Compute the cumulative sum of `X` values in the Stack.
+
+        Parameters
+        ----------
+        fine : bool, optional (default=False)
+            If True, the cumulative sum is computed over individual source contributions
+            (fine-grained), rather than the aggregated `X` values.
+
+        Returns
+        -------
+        np.ndarray
+            A 1D array of cumulative `X` values.
+        """
+        if fine:
+            it = (v for s_dict in self._sources for v in s_dict.values())
+            X = np.fromiter(it, dtype=float)
+        else:
+            X = self._X
+
+        return self.f.accumulate(X)
+
     def mean(self, n: int = None) -> Stack:
         """
+        Compute the mean of this `Stack`
         """
         if n is None:
             n = len(self.name.split("+"))
@@ -222,15 +306,56 @@ class Stack(object):
 
             return Stack(self._X.copy() / n, self._Y.copy(), self.name, S)
 
-    def total(self) -> int | float:
+    def project_onto(self, partition: Iterable) -> Stack:
         """
-        Aggregate all the `X` values
+        Project the Stack's `X` values onto a new `Y` partition by binning.
+
+        For each `partition[i]`, the resulting `X[i]` is computed as the sum of
+        all `self.X[j]` such that `partition[i-1] < self.Y[j] <= partition[i]`.
+        (For `i = 0`, the lower bound is treated as -infinity.)
+
+        Parameters
+        ----------
+        partition : array-like
+            A 1D array of monotonically increasing positive values representing
+            the bin edges.
 
         Returns
         -------
-        total : Number
+        Stack
+            A new Stack with `Y = partition` and `X` values aggregated over the
+            corresponding bins.
+
+        Example
+        -------
+        >>> st = Stack([10, 20, 30, 40], [1, 2, 3, 3.5], name="twoflower")
+        >>> new_st = st.project_onto([2, 3, 4])
+        >>> new_st.Y
+        array([2, 3, 4])
+        >>> new_st.X
+        array([30, 30, 40])
         """
-        return self.f.reduce(self._X)
+        _validate_Y_stack_vector(partition)
+        partition = np.asarray(partition)
+
+        # digitize self._Y into partition bins
+        bin_indices = np.digitize(self._Y, partition, right=True)
+
+        # initialize new X and S
+        X = np.zeros(len(partition), dtype=self._X.dtype)
+        S = [{} for _ in range(len(partition))]
+
+        # aggregate
+        for j, bin_idx in enumerate(bin_indices):
+            X[bin_idx] += self._X[j]
+
+            for source, value in self._sources[j].items():
+                if source in S[bin_idx]:
+                    S[bin_idx][source] += value
+                else:
+                    S[bin_idx][source] = value
+
+        return Stack(X, partition.copy(), name=self.name, sources=S)
 
     def rename(self, name: str) -> Stack:
         """
@@ -243,6 +368,39 @@ class Stack(object):
         """
         self.name = name
         return self
+
+    def truncate(self, y: float) -> Stack:
+        """
+        Truncate the Stack from the top based on a `Y` threshold.
+
+        This method removes all entries where `Y > y`, returning a new Stack
+        containing only entries where `Y <= y`.
+
+        Parameters
+        ----------
+        y : float
+            The upper bound for `Y` values to retain.
+
+        Returns
+        -------
+        Stack
+            A new Stack instance truncated at `Y <= y`.
+        """
+        mask = self._Y <= y
+        X = self._X[mask]
+        Y = self._Y[mask]
+        S = self._sources[mask]
+        return Stack(X, Y, name=self.name, sources=S)
+
+    def total(self) -> int | float:
+        """
+        Aggregate all the `X` values
+
+        Returns
+        -------
+        total : Number
+        """
+        return self.f.reduce(self._X)
 
     def total_above(self, threshold: int | float) -> int | float:
         """
@@ -260,9 +418,9 @@ class Stack(object):
 
         Notes
         -----
-        The comparison uses a weak inequality
+        The comparison uses a strong inequality
         """
-        mask = self._Y >= threshold
+        mask = self._Y > threshold
         return self.f.reduce(self._X[mask])
 
     def total_below(self, threshold: int | float) -> int | float:
@@ -281,9 +439,9 @@ class Stack(object):
 
         Notes
         -----
-        The comparison uses a strict inequality
+        The comparison uses a weak inequality
         """
-        mask = self._Y < threshold
+        mask = self._Y <= threshold
         return self.f.reduce(self._X[mask])
 
     # =====
@@ -370,6 +528,49 @@ ADD_DELIM = "+"
 
 
 
+def _accumulate_at(
+    Z: np.ndarray,
+    X: np.ndarray,
+    Y: np.ndarray,
+    W: np.ndarray = None
+) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Accumulate `X` values into a target array `W` at positions determined by mapping `Y` into `Z`.
+
+    For each element in `Y`, its position in `Z` is determined via `np.searchsorted(Z, Y)`.
+    The corresponding `X` value is added to `W` at that position.
+
+    Parameters
+    ----------
+    Z : np.ndarray
+        Target domain array (monotonically increasing).
+    X : np.ndarray
+        Values to be accumulated.
+    Y : np.ndarray
+        Source domain array (must be compatible with `X`).
+    W : np.ndarray, optional
+        Target accumulation array. If None, a zero-initialized array is created.
+
+    Returns
+    -------
+    W : np.ndarray
+        The accumulation array after adding contributions from `X`.
+    I : np.ndarray
+        Index mapping from `Y` into `Z`.
+
+    Notes
+    -----
+    This is a utility used to efficiently sum weights (`X`) into a merged domain (`Z`).
+    """
+    if W is None:
+        W = np.zeros(len(Z), dtype=X.dtype)
+
+    I = np.searchsorted(Z, Y)
+    W[I] += X
+
+    return W, I
+
+
 def _add_stacks(
     Xl: np.ndarray,
     Yl: np.ndarray,
@@ -390,9 +591,40 @@ def _add_stacks_with_zipper(
     Yr: np.ndarray,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """
-    Interlace two Stacks `(Xl, Yl)` and `(Xr, Yr)` into the expected `(X, Y)`
-    summed Stack. The indexes used to map `Yl` and `Yr` into `Y` are also
-    returned
+    Merge two Stack-like arrays into a single combined Stack by interlacing their domains.
+
+    Given two pairs of vectors `(Xl, Yl)` and `(Xr, Yr)`, this function produces a merged
+    `Y` vector equal to the sorted union of `Yl` and `Yr`, and an `X` vector whose entries
+    at each `Y[i]` are the sum of corresponding `X` values from the inputs.
+
+    Additionally, the index mappings from `Yl` and `Yr` into the merged `Y` vector are returned.
+
+    Parameters
+    ----------
+    Xl : np.ndarray
+        First input `X` vector (non-negative weights).
+    Yl : np.ndarray
+        First input `Y` vector (monotonically increasing, positive).
+    Xr : np.ndarray
+        Second input `X` vector.
+    Yr : np.ndarray
+        Second input `Y` vector.
+
+    Returns
+    -------
+    X : np.ndarray
+        Combined `X` vector over the merged `Y` domain.
+    Y : np.ndarray
+        Sorted union of `Yl` and `Yr`.
+    Il : np.ndarray
+        Index mapping from `Yl` into `Y`.
+    Ir : np.ndarray
+        Index mapping from `Yr` into `Y`.
+
+    Notes
+    -----
+    This is an efficient O(n + m) operation, assuming both `Yl` and `Yr` are sorted.
+    Equivalent to `np.union1d(Yl, Yr)` followed by aligned sum of `X` values.
     """
 
     # this is an O(n+m) operation equivalent to `np.union1d(...)`, which is
@@ -401,16 +633,10 @@ def _add_stacks_with_zipper(
 
     # initialize the sum's X-values
     X = np.zeros(len(Y), np.result_type(Xl, Xr))
+    X, Il = _accumulate_at(Y, Xl, Yl, X)
+    X, Ir = _accumulate_at(Y, Xr, Yr, X)
 
-    # maps from Yl -> Y and Yr -> Y space
-    il = np.searchsorted(Y, Yl)
-    ir = np.searchsorted(Y, Yr)
-
-    # fill em all in
-    X[il] += Xl
-    X[ir] += Xr
-
-    return X, Y, il, ir
+    return X, Y, Il, Ir
 
 def _add_stack_collections_with_zippers(
     Xs: Iterable[np.ndarray],
@@ -515,12 +741,17 @@ def _validate_stack_vectors(X: np.ndarray, Y: np.ndarray, strict: bool):
         )
         raise ValueError(msg)
 
+    _validate_X_stack_vector(X)
+    _validate_Y_stack_vector(Y)
+
+def _validate_X_stack_vector(X: np.ndarray):
     if X.shape[0] < 1:
         raise ValueError("`Stack` vectors must be nonempty")
 
     if np.any(X <= 0):
         raise ValueError(f"the `X` vector of `Stack` has non-positive elements")
 
+def _validate_Y_stack_vector(Y: np.ndarray):
     if np.any(np.diff(Y) <= 0):
         msg = (
             "the `Y` vector of `Stack` is either not sorted or not "
