@@ -1,0 +1,9 @@
+[package]
+name = "rusty-stacks"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+either = "1.15.0"
+num-traits = "0.2.19"
+rustc-hash = "2.1.1"
