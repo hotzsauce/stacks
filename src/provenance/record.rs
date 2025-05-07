@@ -1,12 +1,10 @@
 /// A single `Record` needs to be light-weight in terms of memory and easily
 /// extendable/appendable
+use std::convert::From;
 use std::mem;
 use std::slice::{Iter as SliceIter, IterMut as SliceIterMut};
 
 use crate::SourceID;
-
-// TODO
-// - Should implement Eq for Record
 
 /// Compact container for one or more `(SourceID, X)` entries at a single level.
 ///
@@ -34,24 +32,24 @@ impl<X> Record<X> {
         Record::One((src, x))
     }
 
-    /// Creates a record containing a single `(SourceID, X)` pair.
+    /// Creates a record containing `(src, mass)` pairs for each element `mass` in `iter`.
     ///
     /// # Parameters
     /// - `src`: Source identifier.
-    /// - `x`: Mass value.
+    /// - `iter`: Iterable of masses.
     ///
     /// # Returns
-    /// `Record::One((src, x))`.
-    pub fn from<I>(src: SourceID, iter: I) -> Self
+    /// `Record`.
+    pub fn from_iter_with_source<I>(src: SourceID, iter: I) -> Self
     where
         I: IntoIterator<Item = X>,
     {
         let mut vec = iter.into_iter().map(|mass| (src, mass)).collect::<Vec<_>>();
 
         match vec.len() {
-            0 => Record::Empty,
-            1 => Record::One(vec.pop().unwrap()),
-            _ => Record::Many(vec),
+            0 => Self::Empty,
+            1 => Self::One(vec.pop().unwrap()),
+            _ => Self::Many(vec),
         }
     }
 
@@ -177,12 +175,65 @@ impl<X> Record<X> {
     }
 }
 
+// interface
+
+impl<X> From<(SourceID, X)> for Record<X> {
+    fn from(item: (SourceID, X)) -> Self {
+        Self::One(item)
+    }
+}
+impl<X> From<X> for Record<X> {
+    // this could cause potential problems w/o constraints on `X`
+    fn from(mass: X) -> Self {
+        let src = 0 as SourceID;
+        Self::One((src, mass))
+    }
+}
+
+impl<X> PartialEq for Record<X>
+where
+    X: PartialEq,
+{
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Record::Empty, Record::Empty) => true,
+            (Record::One(l), Record::One(r)) => l == r,
+            (Record::Many(l), Record::Many(r)) => l == r,
+            _ => false,
+        }
+    }
+}
+
+/// Provides `Record::empty()` as the default `Default` implementation.
+///
+/// # Type Parameters
+/// - `X`: Must implement `Default`, though not used to populate data.
+impl<X> Default for Record<X>
+where
+    X: Default,
+{
+    fn default() -> Self {
+        Self::empty()
+    }
+}
+
+// iteration interface
+
 /// Creating a `Record` from an iterator (`source` forced to `0 as SourceID`)
 impl<X> FromIterator<X> for Record<X> {
     // Private helper: build from a bare iterator of mass values under a single source.
-    fn from_iter<I: IntoIterator<Item = X>>(iter: I) -> Self {
+    fn from_iter<I>(iter: I) -> Self
+    where
+        I: IntoIterator<Item = X>,
+    {
         let src = 0 as SourceID;
-        Self::from(src, iter)
+        let mut vec = iter.into_iter().map(|mass| (src, mass)).collect::<Vec<_>>();
+
+        match vec.len() {
+            0 => Self::Empty,
+            1 => Self::One(vec.pop().unwrap()),
+            _ => Self::Many(vec),
+        }
     }
 }
 
@@ -245,18 +296,5 @@ impl<'a, X> Iterator for RecordIterMut<'a, X> {
             RecordIterMut::One(opt) => opt.take(),
             RecordIterMut::Many(iter) => iter.next(),
         }
-    }
-}
-
-/// Provides `Record::empty()` as the default `Default` implementation.
-///
-/// # Type Parameters
-/// - `X`: Must implement `Default`, though not used to populate data.
-impl<X> Default for Record<X>
-where
-    X: Default,
-{
-    fn default() -> Self {
-        Self::empty()
     }
 }
