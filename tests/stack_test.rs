@@ -1,4 +1,4 @@
-use stacks::stack::{DecStack, Decreasing, IncStack, Stack};
+use rusty_stacks::stack::{DecStack, Decreasing, IncStack, Stack};
 
 fn three_stack() -> IncStack<i32, f64> {
     let x = vec![3, 4, 5];

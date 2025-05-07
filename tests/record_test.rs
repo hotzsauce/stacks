@@ -1,4 +1,4 @@
-use stacks::provenance::record::Record;
+use rusty_stacks::provenance::record::Record;
 
 #[test]
 fn init_record_tests() {

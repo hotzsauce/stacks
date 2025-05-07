@@ -1,4 +1,4 @@
-use stacks::provenance::Provenance;
+use rusty_stacks::provenance::Provenance;
 
 fn simple_prov() -> Provenance<i32> {
     Provenance::from_source_and_mass("rincewind", vec![3, 4, 5])

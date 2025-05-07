@@ -1,4 +1,4 @@
-use stacks::provenance::pool::SourcePool;
+use rusty_stacks::provenance::pool::SourcePool;
 
 #[test]
 fn init_pool_from_sources() {
