@@ -16,13 +16,27 @@ impl OfferStack {
             .map_err(|_| PyRuntimeError::new_err("encountered error"))
     }
 
-    fn cumulate(&self) -> Vec<f64> {
-        self.inner.cumulate()
-    }
+    // dunder methods
 
     fn __repr__(&self) -> String {
         // impractical for large Stacks but sufficient for prototyping lol
         format!("Stack({:?}, {:?})", self.inner.x, self.inner.y)
+    }
+
+    // interface methods
+
+    fn cumulate(&self) -> Vec<f64> {
+        self.inner.cumulate()
+    }
+
+    #[getter]
+    fn x(&self) -> &[f64] {
+        &self.inner.x
+    }
+
+    #[getter]
+    fn y(&self) -> &[f64] {
+        &self.inner.y
     }
 }
 
