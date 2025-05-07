@@ -13,7 +13,7 @@ impl OfferStack {
     fn new(x: Vec<f64>, y: Vec<f64>) -> PyResult<Self> {
         IncStack::try_from_vectors(x, y)
             .map(|inner| Self { inner })
-            .map_err(|_| PyRuntimeError::new_err("encountered error"))
+            .map_err(|err| PyRuntimeError::new_err(format!("{}", err)))
     }
 
     // dunder methods
