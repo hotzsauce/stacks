@@ -2,14 +2,14 @@
 // [x] clip(X) -> Stack<X, Y>
 // [x] cumulate() -> Vec<X>
 // [ ] mean() -> [UNKONOWN?]
-// [ ] project_onto(Vec<Y>) -> Stack<X, Y>
+// [x] project_onto(Vec<Y>) -> Stack<X, Y>
 // [x] rename(&str) -> Stack<X, Y> {here, called `alias`}
 // [x] truncate(Y) -> Stack<X, Y>
 // [x] total() -> X
 // [x] total_above(Y) -> X
 // [x] total_below(Y) -> X
-// [ ] X() -> Vec<X> {should be renamed to mass()}
-// [ ] Y() -> Vec<Y> {should be renamed to level()}
+// [ ] X() -> Vec<X> {should be renamed to mass()?} {only expose in python bindings?}
+// [ ] Y() -> Vec<Y> {should be renamed to level()?} {only expose in python bindings?}
 //
 // [x] __add__(Stack<X, Y>, Stack<W, Z>) -> Stack<(X, W), (Y, Z)>
 // [ ] __radd__(Stack<X, Y>, Stack<W, Z>) -> Stack<(W, X), (Z, Y)>
@@ -21,10 +21,13 @@
 //      it's meant to "wipe" the existing provenance vector into
 //      the single provided source
 
+// TODO:
+// `merge_union_indices` needs to factor in OrderMarker::is_in_order
+
 use either::Either;
 use num_traits::{Num, Zero};
 
-use std::cmp::PartialOrd;
+use std::cmp::{Ordering, PartialOrd};
 use std::fmt;
 use std::marker::PhantomData;
 use std::ops::Add;
@@ -78,6 +81,99 @@ impl OrderMarker for Decreasing {
         prev > next
     }
 }
+
+/// An iterator adaptor that yields the running (prefix) sums of an inner iterator.
+///
+/// Each time you call `next()`, the returned value is the sum of all items
+/// seen so far, including the current one.
+///
+/// # Type parameters
+///
+/// - `I`: The inner iterator yielding items of type `T`.
+/// - `T`: The element and accumulation type. Must implement `Default` (for the
+///   initial zero), `Add<Output = T>` (for summation), and `Copy`.
+///
+/// # Examples
+///
+/// ```rust
+/// use your_crate::CumulativeSum;
+///
+/// let data = vec![1, 2, 3];
+/// let mut cum = CumulativeSum::new(data.into_iter());
+/// assert_eq!(cum.next(), Some(1));
+/// assert_eq!(cum.next(), Some(3));
+/// assert_eq!(cum.next(), Some(6));
+/// assert_eq!(cum.next(), None);
+/// ```
+pub struct CumulativeSum<I, T> {
+    iter: I,
+    init: T,
+}
+
+impl<I, T> CumulativeSum<I, T>
+where
+    T: Default,
+{
+    /// Creates a new `CumulativeSum` iterator starting from zero.
+    ///
+    /// # Parameters
+    ///
+    /// - `iter`: The base iterator whose items will be accumulated.
+    ///
+    /// # Returns
+    ///
+    /// A `CumulativeSum` adaptor that yields prefix sums of the inner iterator.
+    pub fn new(iter: I) -> Self {
+        let init = T::default();
+        Self { iter, init }
+    }
+}
+
+impl<I, T> Iterator for CumulativeSum<I, T>
+where
+    I: Iterator<Item = T>,
+    T: Add<Output = T> + Copy,
+{
+    type Item = T;
+
+    /// Advances the iterator and returns the next cumulative total.
+    ///
+    /// Returns `None` when the inner iterator is exhausted.
+    fn next(&mut self) -> Option<T> {
+        self.iter.next().map(|x| {
+            self.init = self.init + x;
+            self.init
+        })
+    }
+}
+
+/// Extension trait providing a `cumulative_sum` adaptor for any iterator.
+///
+/// Once in scope, any `Iterator` whose `Item` implements `Default + Add + Copy`
+/// gains a `cumulative_sum()` method.
+///
+/// # Examples
+///
+/// ```
+/// use rusty_stacks::IteratorCumulativeSum;
+///
+/// let result: Vec<_> = vec![4, 5, 6]
+///     .into_iter()
+///     .cumulative_sum()
+///     .collect();
+/// assert_eq!(result, vec![4, 9, 15]);
+/// ```
+pub trait IteratorCumulativeSum: Iterator + Sized {
+    fn cumulative_sum(self) -> CumulativeSum<Self, Self::Item>
+    where
+        Self::Item: Default + Add<Output = Self::Item> + Copy,
+    {
+        CumulativeSum::new(self)
+    }
+}
+
+// blanket implementation for all iterators
+impl<I: Iterator> IteratorCumulativeSum for I {}
 
 /// Represents a 2-tuple of vectors `(x, y)` modeling discrete masses `x`
 /// at corresponding levels `y`, with provenance tracking.
@@ -255,20 +351,7 @@ where
     /// A `Vec<X>` of the same length as `x` where each element `i`
     /// is the sum of `x[0] + x[1] + ... + x[i]`.
     pub fn cumulate(&self) -> Vec<X> {
-        let n = self.x.len();
-        if n == 0 {
-            return Vec::new();
-        }
-
-        let mut result = Vec::with_capacity(n);
-        let mut sum = X::zero();
-
-        for &x in &self.x {
-            sum = sum + x;
-            result.push(sum);
-        }
-
-        result
+        self.x.iter().copied().cumulative_sum().collect()
     }
 
     /// Returns the number of level entries in the `Stack`.
@@ -429,7 +512,181 @@ where
     }
 }
 
+/// Comparing `Stack` equality. Provenances are ignored entirely.
+impl<X, Y, O> PartialEq for Stack<X, Y, O>
+where
+    X: PartialEq,
+    Y: PartialEq,
+{
+    fn eq(&self, other: &Self) -> bool {
+        (self.x == other.x) && (self.y == other.y)
+    }
+}
+
+/// Compare two `Stack`s by their cumulative mass distributions (CDFs),
+/// implementing a variant of second-order stochastic dominance.
+///
+/// This method:
+/// 1. Aligns both stacks’ levels by taking the sorted union of their `y` vectors.
+/// 2. Uses `SparseIter` to fill each stack’s mass vector to that union length,
+///    inserting zeros where a level is absent.
+/// 3. Computes the running total (prefix sums) of each extended mass vector.
+/// 4. At each level, records whether `self`’s cumulative mass is strictly less
+///    or strictly greater than `other`’s.
+///
+/// The final decision is:
+/// - `Some(Ordering::Greater)` if `self` has ≥ cumulative mass at every level
+///    and strictly greater at least one level.
+/// - `Some(Ordering::Less)`    if `self` has ≤ cumulative mass at every level
+///    and strictly less    at least one level.
+/// - `Some(Ordering::Equal)`   if both cumulative distributions are identical.
+/// - `None`                    otherwise (the CDFs cross and no dominance holds).
+///
+/// # Type constraints
+/// - `X`: Mass type. Must implement `Copy`, `PartialOrd`, `Default`, and `Add<Output = X>`.
+/// - `Y`: Level type. Must implement `Copy` and `PartialOrd`.
+/// - `O`: `OrderMarker` (`Increasing` or `Decreasing`), determining whether “below”
+///   and “above” are interpreted in ascending or descending order of `y`.
+///
+/// # Performance
+/// Runs in O(n + m) time (where n, m are the lengths of the two stacks) and
+/// O(n + m) memory to hold the merged level list and intermediate prefix sums.
+///
+/// # Notes
+/// - Provenance is ignored in comparisons.
+/// - Uses `merge_union_indices` + `SparseIter` internally.
+impl<X, Y, O> PartialOrd for Stack<X, Y, O>
+where
+    X: Copy + PartialOrd + Default + Add<Output = X>,
+    Y: Copy + PartialOrd,
+    O: OrderMarker,
+{
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        let (y, li, ri) = merge_union_indices(&self.y, &other.y);
+        let n = y.len();
+
+        let lx = SparseIter::new(&self.x, &li, n).cumulative_sum();
+        let rx = SparseIter::new(&other.x, &ri, n).cumulative_sum();
+
+        let mut any_lt = false;
+        let mut any_gt = false;
+        let mut all_ge = true;
+        let mut all_le = true;
+
+        for (a, b) in lx.zip(rx) {
+            if O::is_in_order(&a, &b) {
+                any_lt = true;
+                all_ge = false;
+            }
+            if O::is_in_order(&b, &a) {
+                any_gt = true;
+                all_le = false;
+            }
+        }
+
+        match (all_le, all_ge, any_lt, any_gt) {
+            (true, true, false, false) => Some(Ordering::Equal),
+            (true, false, true, false) => Some(Ordering::Less),
+            (false, true, false, true) => Some(Ordering::Greater),
+            _ => None, // crosses
+        }
+    }
+}
+
 // utility functions
+
+/// An iterator that interpolates a sparse set of values over a fixed length,
+/// filling all other positions with `T::default()`.
+///
+/// Given
+///  - a slice `x` of length `k`,
+///  - a sorted index slice `index` of length `k` with values in `[0..n)`, and
+///  - a target length `n`,
+///
+/// `SparseIter::new(&x, &index, n)` will yield `n` items:
+/// at each position `j`:
+///  - if `j` appears in `index[i]`, it yields `x[i]`,
+///  - otherwise it yields `T::default()`.
+///
+/// # Type parameters
+///
+/// - `T`: The element type. Must implement `Default` (for filler values) and `Copy`.
+///
+/// # Panics
+///
+/// - If `x.len() != index.len()`.
+/// - If `index` is empty or its last element ≥ `n`.
+///
+/// # Examples
+///
+/// ```rust
+/// use your_crate::SparseIter;
+///
+/// let values = vec![10, 20];
+/// let positions = vec![1, 3];
+/// let expanded: Vec<_> = SparseIter::new(&values, &positions, 5).collect();
+/// assert_eq!(expanded, vec![0, 10, 0, 20, 0]);
+/// ```
+pub struct SparseIter<'a, T> {
+    x: &'a [T],
+    index: &'a [usize],
+    done: usize, // how many of the pairs we've already emitted
+    pos: usize,  // current j in 0..n
+    n: usize,    // total length
+}
+
+impl<'a, T> SparseIter<'a, T> {
+    /// Constructs the sparse iterator.
+    ///
+    /// # Parameters
+    ///
+    /// - `x`: Slice of `k` values to emit.
+    /// - `index`: Sorted slice of `k` distinct positions where `x` should be placed.
+    /// - `n`: Total number of items the iterator will yield.
+    ///
+    /// # Panics
+    ///
+    /// - If `x.len() != index.len()`.
+    /// - If `n <= *index.last().unwrap()`.
+    pub fn new(x: &'a [T], index: &'a [usize], n: usize) -> Self {
+        assert!(x.len() == index.len(), "length mismatch");
+        if let Some(&last) = index.last() {
+            assert!(n > last, "`n` must exceed the final index");
+        }
+        Self {
+            x,
+            index,
+            done: 0,
+            pos: 0,
+            n,
+        }
+    }
+}
+
+impl<'a, T> Iterator for SparseIter<'a, T>
+where
+    T: Default + Copy,
+{
+    type Item = T;
+
+    /// Yields exactly `n` values: each position matching `index` yields the
+    /// corresponding element from `x`; all other positions yield `T::default()`.
+    fn next(&mut self) -> Option<T> {
+        if self.pos >= self.n {
+            return None;
+        }
+        // if the next index matches this position, emit that x; otherwise default
+        let out = if self.done < self.index.len() && self.index[self.done] == self.pos {
+            let v = self.x[self.done];
+            self.done += 1;
+            v
+        } else {
+            T::default()
+        };
+        self.pos += 1;
+        Some(out)
+    }
+}
 
 /// Checks that `y` is strictly monotonic according to `O`.
 ///
