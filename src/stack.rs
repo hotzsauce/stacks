@@ -13,7 +13,7 @@
 //
 // [x] __add__(Stack<X, Y>, Stack<W, Z>) -> Stack<(X, W), (Y, Z)>
 // [ ] __radd__(Stack<X, Y>, Stack<W, Z>) -> Stack<(W, X), (Z, Y)>
-// [ ] __ge__(Stack<X, Y>, Stack<W, Z>) -> bool
+// [x] __ge__(Stack<X, Y>, Stack<W, Z>) -> Ordering
 // [x] __len__(Stack<X, Y>) -> usize
 //
 // [ ] wipe(&str) -> Stack<X, Y>

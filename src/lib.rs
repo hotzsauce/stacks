@@ -6,4 +6,5 @@ pub mod transform;
 pub type SourceID = u16;
 
 pub use error::Error;
-pub use stack::{DecStack, IncStack, Stack};
+pub use provenance::{Provenance, record::Record};
+pub use stack::{DecStack, IncStack, OrderMarker, Stack};
