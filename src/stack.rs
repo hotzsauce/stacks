@@ -565,11 +565,6 @@ where
         let (y, li, ri) = merge_union_indices::<Y, O>(&self.y, &other.y);
         let n = y.len();
 
-        // let lx = SparseIter::new(&self.x, &li, n).cumulative_sum();
-        // let rx = SparseIter::new(&other.x, &ri, n).cumulative_sum();
-        // println!("{:?}", lx.collect::<Vec<X>>());
-        // println!("{:?}", rx.collect::<Vec<X>>());
-
         let lx = SparseIter::new(&self.x, &li, n).cumulative_sum();
         let rx = SparseIter::new(&other.x, &ri, n).cumulative_sum();
 
