@@ -96,7 +96,7 @@ impl OrderMarker for Decreasing {
 /// # Examples
 ///
 /// ```rust
-/// use your_crate::CumulativeSum;
+/// use rusty_stacks::CumulativeSum;
 ///
 /// let data = vec![1, 2, 3];
 /// let mut cum = CumulativeSum::new(data.into_iter());
@@ -474,7 +474,7 @@ where
     type Output = Self;
 
     fn add(self, rhs: Stack<X, Y, O>) -> Self::Output {
-        let (y, li, ri) = merge_union_indices(&self.y, &rhs.y);
+        let (y, li, ri) = merge_union_indices::<Y, O>(&self.y, &rhs.y);
         let prov = Provenance::merge(&self.prov, &rhs.prov, &li, &ri, y.len());
 
         let n = y.len();
@@ -557,13 +557,18 @@ where
 /// - Uses `merge_union_indices` + `SparseIter` internally.
 impl<X, Y, O> PartialOrd for Stack<X, Y, O>
 where
-    X: Copy + PartialOrd + Default + Add<Output = X>,
+    X: Copy + PartialOrd + Default + Add<Output = X> + std::fmt::Debug,
     Y: Copy + PartialOrd,
     O: OrderMarker,
 {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        let (y, li, ri) = merge_union_indices(&self.y, &other.y);
+        let (y, li, ri) = merge_union_indices::<Y, O>(&self.y, &other.y);
         let n = y.len();
+
+        // let lx = SparseIter::new(&self.x, &li, n).cumulative_sum();
+        // let rx = SparseIter::new(&other.x, &ri, n).cumulative_sum();
+        // println!("{:?}", lx.collect::<Vec<X>>());
+        // println!("{:?}", rx.collect::<Vec<X>>());
 
         let lx = SparseIter::new(&self.x, &li, n).cumulative_sum();
         let rx = SparseIter::new(&other.x, &ri, n).cumulative_sum();
@@ -574,11 +579,11 @@ where
         let mut all_le = true;
 
         for (a, b) in lx.zip(rx) {
-            if O::is_in_order(&a, &b) {
+            if a < b {
                 any_lt = true;
                 all_ge = false;
             }
-            if O::is_in_order(&b, &a) {
+            if b < a {
                 any_gt = true;
                 all_le = false;
             }
@@ -620,7 +625,7 @@ where
 /// # Examples
 ///
 /// ```rust
-/// use your_crate::SparseIter;
+/// use rusty_stacks::SparseIter;
 ///
 /// let values = vec![10, 20];
 /// let positions = vec![1, 3];
@@ -754,9 +759,10 @@ where
 /// 3. Index mapping from `right` entries into the union.
 ///
 /// Useful for merging two stacks with alignment of levels.
-fn merge_union_indices<T>(left: &[T], right: &[T]) -> (Vec<T>, Vec<usize>, Vec<usize>)
+fn merge_union_indices<T, O>(left: &[T], right: &[T]) -> (Vec<T>, Vec<usize>, Vec<usize>)
 where
     T: Copy + std::cmp::PartialOrd,
+    O: OrderMarker,
 {
     // reserve the worst-case capacity (no reallocs)
     let max_union_size = left.len() + right.len();
@@ -770,11 +776,11 @@ where
         let right_val = &right[j];
         let current_idx = union.len();
 
-        if left_val < right_val {
+        if O::is_in_order(left_val, right_val) {
             union.push(*left_val);
             li.push(current_idx);
             i += 1;
-        } else if right_val < left_val {
+        } else if O::is_in_order(right_val, left_val) {
             union.push(*right_val);
             ri.push(current_idx);
             j += 1;

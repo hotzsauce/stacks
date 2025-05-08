@@ -127,3 +127,93 @@ fn stack_dec_truncate() {
     assert_eq!(clipped.x, vec![2, 3, 5]);
     assert_eq!(clipped.y, vec![6.7, 0.5, 0.0]);
 }
+
+#[test]
+fn incstack_gt_cmp() {
+    let x = vec![2, 3, 5, 8];
+    let y = vec![-2, 1, 3, 6];
+    let l = IncStack::try_from_vectors(x, y).unwrap();
+
+    let x = vec![2, 3, 5, 8];
+    let y = vec![-1, 2, 4, 7];
+    let r = IncStack::try_from_vectors(x, y).unwrap();
+
+    let gt = l.partial_cmp(&r);
+    assert_eq!(gt, Some(std::cmp::Ordering::Greater));
+    assert_ne!(l, r);
+}
+
+#[test]
+fn incstack_lt_cmp() {
+    let x = vec![2, 3, 5, 8];
+    let y = vec![-1, 2, 4, 7];
+    let l = IncStack::try_from_vectors(x, y).unwrap();
+
+    let x = vec![2, 3, 5, 8];
+    let y = vec![-2, 1, 3, 6];
+    let r = IncStack::try_from_vectors(x, y).unwrap();
+
+    let lt = l.partial_cmp(&r);
+    assert_eq!(lt, Some(std::cmp::Ordering::Less));
+    assert_ne!(l, r);
+}
+
+#[test]
+fn incstack_no_cmp() {
+    let x = vec![2, 3, 5, 8];
+    let y = vec![-1, 2, 4, 7];
+    let l = IncStack::try_from_vectors(x, y).unwrap();
+
+    let x = vec![2, 3, 5, 8];
+    let y = vec![-2, 1, 5, 8];
+    let r = IncStack::try_from_vectors(x, y).unwrap();
+
+    let no = l.partial_cmp(&r);
+    assert_eq!(no, None);
+    assert_ne!(l, r);
+}
+
+#[test]
+fn decstack_gt_cmp() {
+    let x = vec![2, 3, 5, 8];
+    let y = vec![7, 4, 2, -1];
+    let l = DecStack::try_from_vectors(x, y).unwrap();
+
+    let x = vec![2, 3, 5, 8];
+    let y = vec![6, 3, 1, -2];
+    let r = DecStack::try_from_vectors(x, y).unwrap();
+
+    let lt = l.partial_cmp(&r);
+    assert_eq!(lt, Some(std::cmp::Ordering::Greater));
+    assert_ne!(l, r);
+}
+
+#[test]
+fn decstack_lt_cmp() {
+    let x = vec![2, 3, 5, 8];
+    let y = vec![6, 3, 1, -2];
+    let l = DecStack::try_from_vectors(x, y).unwrap();
+
+    let x = vec![2, 3, 5, 8];
+    let y = vec![7, 4, 2, -1];
+    let r = DecStack::try_from_vectors(x, y).unwrap();
+
+    let lt = l.partial_cmp(&r);
+    assert_eq!(lt, Some(std::cmp::Ordering::Less));
+    assert_ne!(l, r);
+}
+
+#[test]
+fn decstack_no_cmp() {
+    let x = vec![2, 3, 5, 8];
+    let y = vec![6, 3, 1, -2];
+    let l = DecStack::try_from_vectors(x, y).unwrap();
+
+    let x = vec![2, 3, 5, 8];
+    let y = vec![7, 4, -1, -3];
+    let r = DecStack::try_from_vectors(x, y).unwrap();
+
+    let lt = l.partial_cmp(&r);
+    assert_eq!(lt, None);
+    assert_ne!(l, r);
+}

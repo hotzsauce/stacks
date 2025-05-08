@@ -181,7 +181,9 @@ impl<X> Record<X> {
 ///
 /// # Example
 /// ```
-/// let record: Record<_> = (42, value).into();
+/// use rusty_stacks::{Record, SourceID};
+/// let (src, mass) = (42 as SourceID, 4);
+/// let record: Record<(_, _)> = (src, mass).into();
 /// ```
 impl<X> From<(SourceID, X)> for Record<X> {
     fn from(item: (SourceID, X)) -> Self {
@@ -197,7 +199,9 @@ impl<X> From<(SourceID, X)> for Record<X> {
 ///
 /// # Example
 /// ```
-/// let record: Record<_> = value.into();
+/// use rusty_stacks::Record;
+/// let mass = 4;
+/// let record: Record<_> = mass.into();
 /// ```
 impl<X> From<X> for Record<X> {
     // this could cause potential problems w/o constraints on `X`
