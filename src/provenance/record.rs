@@ -177,30 +177,33 @@ impl<X> Record<X> {
 
 // interface
 
+/// Allows conversion from a `(SourceID, X)` tuple into a `Record<X>`.
+///
+/// # Example
+/// ```
+/// let record: Record<_> = (42, value).into();
+/// ```
 impl<X> From<(SourceID, X)> for Record<X> {
     fn from(item: (SourceID, X)) -> Self {
         Self::One(item)
     }
 }
+
+/// Allows conversion from a value `X` into a `Record<X>` by assigning a default
+/// `SourceID` of `0`.
+///
+/// # Warning
+/// This may be unsafe or semantically incorrect if `0 as SourceID` is not valid
+///
+/// # Example
+/// ```
+/// let record: Record<_> = value.into();
+/// ```
 impl<X> From<X> for Record<X> {
     // this could cause potential problems w/o constraints on `X`
     fn from(mass: X) -> Self {
         let src = 0 as SourceID;
         Self::One((src, mass))
-    }
-}
-
-impl<X> PartialEq for Record<X>
-where
-    X: PartialEq,
-{
-    fn eq(&self, other: &Self) -> bool {
-        match (self, other) {
-            (Record::Empty, Record::Empty) => true,
-            (Record::One(l), Record::One(r)) => l == r,
-            (Record::Many(l), Record::Many(r)) => l == r,
-            _ => false,
-        }
     }
 }
 
@@ -214,6 +217,30 @@ where
 {
     fn default() -> Self {
         Self::empty()
+    }
+}
+
+/// Provides equality comparison between `Record<X>` values.
+///
+/// # Equality Rules
+/// - Two `Empty` records are equal.
+/// - Two `One` records are equal if their contents are equal.
+/// - Two `Many` records are equal if their vectors are element-wise equal.
+/// - Any other variant combinations are not equal.
+///
+/// # Type Parameters
+/// - `X` must implement `PartialEq`.
+impl<X> PartialEq for Record<X>
+where
+    X: PartialEq,
+{
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Record::Empty, Record::Empty) => true,
+            (Record::One(l), Record::One(r)) => l == r,
+            (Record::Many(l), Record::Many(r)) => l == r,
+            _ => false,
+        }
     }
 }
 
