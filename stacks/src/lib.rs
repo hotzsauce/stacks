@@ -2,15 +2,21 @@ use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
 use rusty_stacks::IncStack;
 
+pub mod record;
+use record::PyRecord;
+
+pub type X = f64;
+pub type Y = f64;
+
 #[pyclass]
 struct OfferStack {
-    inner: IncStack<f64, f64>,
+    inner: IncStack<X, Y>,
 }
 
 #[pymethods]
 impl OfferStack {
     #[new]
-    fn new(x: Vec<f64>, y: Vec<f64>) -> PyResult<Self> {
+    fn new(x: Vec<X>, y: Vec<Y>) -> PyResult<Self> {
         IncStack::try_from_vectors(x, y)
             .map(|inner| Self { inner })
             .map_err(|err| PyRuntimeError::new_err(format!("{}", err)))
@@ -25,23 +31,28 @@ impl OfferStack {
 
     // interface methods
 
-    fn cumulate(&self) -> Vec<f64> {
+    fn cumulate(&self) -> Vec<X> {
         self.inner.cumulate()
     }
 
     #[getter]
-    fn x(&self) -> &[f64] {
+    fn masses(&self) -> &[X] {
         &self.inner.x
     }
 
+    fn mean(&self) -> f64 {
+        self.inner.mean()
+    }
+
     #[getter]
-    fn y(&self) -> &[f64] {
+    fn levels(&self) -> &[Y] {
         &self.inner.y
     }
 }
 
 #[pymodule]
 fn stacks(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add_class::<PyRecord>()?;
     m.add_class::<OfferStack>()?;
     Ok(())
 }

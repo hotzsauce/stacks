@@ -8,15 +8,15 @@
 // [x] total() -> X
 // [x] total_above(Y) -> X
 // [x] total_below(Y) -> X
-// [ ] X() -> Vec<X> {should be renamed to mass()?} {only expose in python bindings?}
-// [ ] Y() -> Vec<Y> {should be renamed to level()?} {only expose in python bindings?}
+// [x] X() -> Vec<X> {should be renamed to masses()?}
+// [x] Y() -> Vec<Y> {should be renamed to levels()?}
 //
 // [x] __add__(Stack<X, Y>, Stack<W, Z>) -> Stack<(X, W), (Y, Z)>
 // [x] __radd__(Stack<X, Y>, Stack<W, Z>) -> Stack<(W, X), (Z, Y)>
 // [x] __ge__(Stack<X, Y>, Stack<W, Z>) -> Ordering
 // [x] __len__(Stack<X, Y>) -> usize
 //
-// [ ] wipe(&str) -> Stack<X, Y>
+// [x] wipe(&str) -> Stack<X, Y>
 //      I'm not sure what this method name should actually be, but
 //      it's meant to "wipe" the existing provenance vector into
 //      the single provided source
