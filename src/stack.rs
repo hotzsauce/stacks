@@ -1,7 +1,7 @@
 // methods that already exist in the python implementation:
 // [x] clip(X) -> Stack<X, Y>
 // [x] cumulate() -> Vec<X>
-// [ ] mean() -> [UNKONOWN?]
+// [x] mean() -> [UNKONOWN?]
 // [x] project_onto(Vec<Y>) -> Stack<X, Y>
 // [x] rename(&str) -> Stack<X, Y> {here, called `alias`}
 // [x] truncate(Y) -> Stack<X, Y>
@@ -12,7 +12,7 @@
 // [ ] Y() -> Vec<Y> {should be renamed to level()?} {only expose in python bindings?}
 //
 // [x] __add__(Stack<X, Y>, Stack<W, Z>) -> Stack<(X, W), (Y, Z)>
-// [ ] __radd__(Stack<X, Y>, Stack<W, Z>) -> Stack<(W, X), (Z, Y)>
+// [x] __radd__(Stack<X, Y>, Stack<W, Z>) -> Stack<(W, X), (Z, Y)>
 // [x] __ge__(Stack<X, Y>, Stack<W, Z>) -> Ordering
 // [x] __len__(Stack<X, Y>) -> usize
 //
@@ -21,11 +21,8 @@
 //      it's meant to "wipe" the existing provenance vector into
 //      the single provided source
 
-// TODO:
-// `merge_union_indices` needs to factor in OrderMarker::is_in_order
-
 use either::Either;
-use num_traits::{Num, Zero};
+use num_traits::{Num, ToPrimitive, Zero};
 
 use std::cmp::{Ordering, PartialOrd};
 use std::fmt;
@@ -448,6 +445,100 @@ where
     pub fn truncate(&self, threshold: Y) -> Self {
         let headsman = Truncate::new(threshold, &self.y);
         headsman.transform(&self)
+    }
+
+    /// Resets the provenance of every mass entry in the `Stack` to the given source.
+    ///
+    /// Discards any existing provenance information and creates a new provenance
+    ///     pool where each mass value is associated *only* with `src`.
+    ///
+    /// # Type Parameters
+    ///
+    /// - `S`: A type that can be converted into a `String`, representing the new source
+    ///     label.
+    ///
+    /// # Parameters
+    ///
+    /// - `src`: Identifier for the new provenance source.
+    ///
+    /// # Returns
+    ///
+    /// A mutable reference to `self`
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use rusty_stacks::IncStack;
+    /// let mut stack = IncStack::try_from_vectors_and_source(
+    ///     vec![1, 2, 3],
+    ///     vec![10.0, 20.0, 30.0],
+    ///     "initial"
+    /// ).unwrap();
+    ///
+    /// // Now reassign every entry’s provenance to "reset_source":
+    /// stack.wipe("reset_source");
+    /// ```
+    pub fn wipe<S>(&mut self, src: S) -> &mut Self
+    where
+        S: Into<String>,
+    {
+        let src = src.into();
+        let prov = Provenance::from_source_and_mass(src, &self.x);
+
+        self.prov = prov;
+        self
+    }
+}
+
+impl<X, Y, O> Stack<X, Y, O>
+where
+    X: Copy + Zero + ToPrimitive,
+    Y: Copy + Zero + ToPrimitive,
+    O: OrderMarker,
+{
+    /// Computes the weighted mean of this stack’s levels, using the masses as weights.
+    ///
+    /// Each mass (`x`) and level (`y`) is converted to `f64`; any entries that
+    /// fail to convert are silently skipped. The result is
+    ///
+    /// ```text
+    ///     mean = ∑(mass_i * level_i) / ∑(mass_i)
+    /// ```
+    ///
+    /// # Returns
+    ///
+    /// - A `f64` containing the weighted average of the levels.
+    /// - If the total mass is zero (or there are no valid entries), the result
+    ///   will be `NaN`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use rusty_stacks::IncStack;
+    /// let stack = IncStack::try_from_vectors(
+    ///     vec![1, 2, 3],
+    ///     vec![10.0, 20.0, 30.0],
+    /// ).unwrap();
+    /// assert_eq!(
+    ///     stack.mean(),
+    ///     (1.0*10.0 + 2.0*20.0 + 3.0*30.0) / (1.0 + 2.0 + 3.0)
+    /// );
+    /// ```
+    pub fn mean(&self) -> f64 {
+        let mut num = f64::zero();
+        let mut den = f64::zero();
+
+        for (mass, level) in self
+            .x
+            .iter()
+            .filter_map(|&x| x.to_f64())
+            .zip(self.y.iter().filter_map(|&y| y.to_f64()))
+        {
+            num += mass * level;
+            den += mass;
+        }
+
+        num / den
     }
 }
 
