@@ -26,6 +26,7 @@ use num_traits::{Num, ToPrimitive, Zero};
 
 use std::cmp::{Ordering, PartialOrd};
 use std::fmt;
+use std::iter::{DoubleEndedIterator, ExactSizeIterator, FusedIterator};
 use std::marker::PhantomData;
 use std::ops::Add;
 
@@ -351,6 +352,19 @@ where
         self.x.iter().copied().cumulative_sum().collect()
     }
 
+    /// Returns an iterator over references to the masses and levels in this stack.
+    ///
+    /// Each element yielded is a pair (`&X`, `&Y`), corresponding to one
+    /// entry in the `x` (mass) and `y` (level) vectors.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use rusty_stacks::IncStack;
+    /// let stack = IncStack::try_from_vectors(vec![1, 2], vec![10.0, 20.0]).unwrap();
+    /// let snapshot: Vec<_> = stack.iter().collect();
+    /// assert_eq!(snapshot, vec![(&1, &10.0), (&2, &20.0)]);
+    /// ```
     pub fn iter(&self) -> StackVectorIterator<'_, X, Y> {
         let iter = StackVectorIterator::new(&self.x, &self.y);
         iter
@@ -365,6 +379,184 @@ where
     /// `usize` length of the `y` vector.
     pub fn len(&self) -> usize {
         self.y.len()
+    }
+
+    /// Borrow a read-only slice of all the levels (y-values) in this stack.
+    ///
+    /// # Returns
+    ///
+    /// A slice `&[Y]` containing each level exactly once, in order.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use rusty_stacks::IncStack;
+    /// let stack = IncStack::try_from_vectors(vec![2, 3, 4], vec![3.3, 4.4, 5.5]).unwrap();
+    /// let lvls: &[f64] = stack.levels();
+    /// println!("levels = {:?}", lvls);
+    /// ```
+    pub fn levels(&self) -> &[Y] {
+        &self.y
+    }
+
+    /// Eagerly collect a “fine‐grained” list of levels into a `Vec<Y>`.
+    ///
+    /// Each level is duplicated according to the number of sources
+    /// contributing at that level (as recorded in `self.prov.records`).
+    ///
+    /// # Returns
+    ///
+    /// A newly allocated `Vec<Y>` of length
+    /// `sum(self.prov.records.iter().map(|r| r.len()))`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use rusty_stacks::IncStack;
+    /// let stack = IncStack::try_from_vectors(vec![2, 3, 4], vec![3.3, 4.4, 5.5]).unwrap();
+    /// let fine: Vec<f64> = stack.levels_fine();
+    /// println!("fine levels = {:?}", fine);
+    /// ```
+    pub fn levels_fine(&self) -> Vec<Y> {
+        self.levels_fine_iter().collect()
+    }
+
+    /// Lazily iterate over a fine-grained view of levels.
+    ///
+    /// This zero-allocation iterator emits each level `y` exactly `n` times,
+    /// where `n` is `self.prov.records[i].len()` for the corresponding index `i`.
+    ///
+    /// # Returns
+    ///
+    /// An `impl Iterator<Item = Y>` producing owned `Y` values.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use rusty_stacks::IncStack;
+    /// let stack = IncStack::try_from_vectors(vec![2, 3, 4], vec![3.3, 4.4, 5.5]).unwrap();
+    /// for lvl in stack.levels_fine_iter() {
+    ///     // lvl appears once per source
+    ///     println!("{:?}", lvl);
+    /// }
+    /// ```
+    pub fn levels_fine_iter(&self) -> impl Iterator<Item = Y> + '_ {
+        self.y
+            .iter()
+            .copied()
+            .zip(self.prov.records.iter())
+            .flat_map(|(y, rec)| std::iter::repeat(y).take(rec.len()))
+    }
+
+    /// Lazily iterate over each level exactly once.
+    ///
+    /// This zero-allocation iterator simply yields each `Y` in `self.y`
+    /// by value (via `Copy`).
+    ///
+    /// # Returns
+    ///
+    /// An `impl Iterator<Item = Y>` producing each level in order.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use rusty_stacks::IncStack;
+    /// let stack = IncStack::try_from_vectors(vec![2, 3, 4], vec![3.3, 4.4, 5.5]).unwrap();
+    /// for lvl in stack.levels_iter() {
+    ///     println!("level = {:?}", lvl);
+    /// }
+    /// ```
+    pub fn levels_iter(&self) -> impl Iterator<Item = Y> + '_ {
+        self.y.iter().copied()
+    }
+
+    /// Borrow a read‐only slice of all the masses (x‐values) in this stack.
+    ///
+    /// # Returns
+    ///
+    /// A slice `&[X]` containing each mass exactly once, in order.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use rusty_stacks::IncStack;
+    /// let stack = IncStack::try_from_vectors(vec![2.0, 3.0, 4.0], vec![3.3, 4.4, 5.5]).unwrap();
+    /// let ms: &[f64] = stack.masses();
+    /// println!("masses = {:?}", ms);
+    /// ```
+    pub fn masses(&self) -> &[X] {
+        &self.x
+    }
+
+    /// Eagerly collect a “fine‐grained” list of masses into a `Vec<X>`.
+    ///
+    /// Each mass value is duplicated according to the number of sources
+    /// contributing at that index (as recorded in `self.prov.records`).
+    ///
+    /// # Returns
+    ///
+    /// A newly allocated `Vec<X>` of length
+    /// `sum(self.prov.records.iter().map(|r| r.len()))`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use rusty_stacks::IncStack;
+    /// let stack = IncStack::try_from_vectors(vec![2.0, 3.0, 4.0], vec![3.3, 4.4, 5.5]).unwrap();
+    /// let fine: Vec<f64> = stack.masses_fine();
+    /// println!("fine masses = {:?}", fine);
+    /// ```
+    pub fn masses_fine(&self) -> Vec<X> {
+        self.masses_fine_iter().collect()
+    }
+
+    /// Lazily iterate over a fine‐grained view of masses.
+    ///
+    /// This zero‐allocation iterator emits each mass `x` exactly `n` times,
+    /// where `n` is `self.prov.records[i].len()` for the corresponding index `i`.
+    ///
+    /// # Returns
+    ///
+    /// An `impl Iterator<Item = X>` producing owned `X` values.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use rusty_stacks::IncStack;
+    /// let stack = IncStack::try_from_vectors(vec![2, 3, 4], vec![3.3, 4.4, 5.5]).unwrap();
+    /// for m in stack.masses_fine_iter() {
+    ///     // each mass appears once per contributing source
+    ///     println!("{:?}", m);
+    /// }
+    /// ```
+    pub fn masses_fine_iter(&self) -> impl Iterator<Item = X> + '_ {
+        self.x
+            .iter()
+            .copied()
+            .zip(self.prov.records.iter())
+            .flat_map(|(x, rec)| std::iter::repeat(x).take(rec.len()))
+    }
+
+    /// Lazily iterate over each mass exactly once.
+    ///
+    /// This zero‐allocation iterator simply yields each `X` in `self.x`
+    /// by value (via the `Copy` bound).
+    ///
+    /// # Returns
+    ///
+    /// An `impl Iterator<Item = X>` producing each mass in order.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use rusty_stacks::IncStack;
+    /// let stack = IncStack::try_from_vectors(vec![2, 3, 4], vec![3.3, 4.4, 5.5]).unwrap();
+    /// for m in stack.masses_iter() {
+    ///     println!("mass = {:?}", m);
+    /// }
+    /// ```
+    pub fn masses_iter(&self) -> impl Iterator<Item = X> + '_ {
+        self.x.iter().copied()
     }
 
     /// project the stack onto a levels vector
@@ -608,36 +800,6 @@ where
     }
 }
 
-// 'Stack' iterators
-
-pub struct StackVectorIterator<'a, X, Y> {
-    x: &'a [X],
-    y: &'a [Y],
-    index: usize,
-    len: usize,
-}
-
-impl<'a, X, Y> StackVectorIterator<'a, X, Y> {
-    pub fn new(x: &'a [X], y: &'a [Y]) -> Self {
-        let index = 0 as usize;
-        let len = x.len();
-        Self { x, y, index, len }
-    }
-}
-
-impl<'a, X, Y> Iterator for StackVectorIterator<'a, X, Y> {
-    type Item = (&'a X, &'a Y);
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.index < self.len {
-            let out = (&self.x[self.index], &self.y[self.index]);
-            self.index += 1;
-            Some(out)
-        } else {
-            None
-        }
-    }
-}
-
 /// Comparing `Stack` equality. Provenances are ignored entirely.
 impl<X, Y, O> PartialEq for Stack<X, Y, O>
 where
@@ -718,6 +880,91 @@ where
         }
     }
 }
+
+// `Stack` iterators
+
+/// Iterator over pairs of mass and level references in a `Stack`.
+///
+/// Yields one tuple `(&X, &Y)` per index, walking the `x` and `y` slices
+/// in lockstep. Supports forward and backward traversal, exact size
+/// reporting, and fused termination.
+pub struct StackVectorIterator<'a, X, Y> {
+    x: std::slice::Iter<'a, X>,
+    y: std::slice::Iter<'a, Y>,
+}
+
+impl<'a, X, Y> StackVectorIterator<'a, X, Y> {
+    /// Creates a new `StackVectorIterator` from parallel slices.
+    ///
+    /// # Parameters
+    ///
+    /// - `x`: Slice of mass values.
+    /// - `y`: Slice of level values.
+    ///
+    /// # Returns
+    ///
+    /// An iterator that yields `( &X, &Y )` for each corresponding index.
+    pub fn new(x: &'a [X], y: &'a [Y]) -> Self {
+        Self {
+            x: x.iter(),
+            y: y.iter(),
+        }
+    }
+}
+
+impl<'a, X, Y> Iterator for StackVectorIterator<'a, X, Y> {
+    type Item = (&'a X, &'a Y);
+
+    /// Advances the iterator and returns the next (`&mass`, `&level`) pair.
+    ///
+    /// Returns `None` when either slice is exhausted.
+    fn next(&mut self) -> Option<Self::Item> {
+        match (self.x.next(), self.y.next()) {
+            (Some(x), Some(y)) => Some((x, y)),
+            _ => None,
+        }
+    }
+
+    /// Returns an exact lower and upper bound on the remaining length.
+    ///
+    /// Both bounds are the same (`lo == hi`), equal to the number of
+    /// elements left in the shorter of the two underlying slices.
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let (lo1, hi1) = self.x.size_hint();
+        let (lo2, hi2) = self.y.size_hint();
+
+        let lo = lo1.min(lo2);
+        let hi = match (hi1, hi2) {
+            (Some(h1), Some(h2)) => Some(h1.min(h2)),
+            _ => None,
+        };
+        (lo, hi)
+    }
+}
+
+// implement DoubleEndedIterator to get `.rev()
+impl<'a, X, Y> DoubleEndedIterator for StackVectorIterator<'a, X, Y> {
+    /// Advances the iterator from the back, returning the last (`&mass`, `&level`) pair.
+    ///
+    /// Returns `None` when no elements remain.
+    fn next_back(&mut self) -> Option<Self::Item> {
+        match (self.x.next_back(), self.y.next_back()) {
+            (Some(x), Some(y)) => Some((x, y)),
+            _ => None,
+        }
+    }
+}
+
+// because `size_hint()` is exact
+impl<'a, X, Y> ExactSizeIterator for StackVectorIterator<'a, X, Y> {
+    /// Returns the exact number of elements remaining in the iterator.
+    fn len(&self) -> usize {
+        self.x.len()
+    }
+}
+
+// mark as Fuxed so that once it returns None it never again yields Some
+impl<'a, X, Y> FusedIterator for StackVectorIterator<'a, X, Y> {}
 
 // utility functions
 
