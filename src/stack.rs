@@ -351,6 +351,11 @@ where
         self.x.iter().copied().cumulative_sum().collect()
     }
 
+    pub fn iter(&self) -> StackVectorIterator<'_, X, Y> {
+        let iter = StackVectorIterator::new(&self.x, &self.y);
+        iter
+    }
+
     /// Returns the number of level entries in the `Stack`.
     ///
     /// Equivalent to `self.y.len()`.
@@ -600,6 +605,36 @@ where
             .field("y", &self.y)
             .field("prov", &self.prov)
             .finish()
+    }
+}
+
+// 'Stack' iterators
+
+pub struct StackVectorIterator<'a, X, Y> {
+    x: &'a [X],
+    y: &'a [Y],
+    index: usize,
+    len: usize,
+}
+
+impl<'a, X, Y> StackVectorIterator<'a, X, Y> {
+    pub fn new(x: &'a [X], y: &'a [Y]) -> Self {
+        let index = 0 as usize;
+        let len = x.len();
+        Self { x, y, index, len }
+    }
+}
+
+impl<'a, X, Y> Iterator for StackVectorIterator<'a, X, Y> {
+    type Item = (&'a X, &'a Y);
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.index < self.len {
+            let out = (&self.x[self.index], &self.y[self.index]);
+            self.index += 1;
+            Some(out)
+        } else {
+            None
+        }
     }
 }
 
